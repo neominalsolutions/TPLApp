@@ -1,5 +1,7 @@
 ﻿using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using SampleAPI.Services;
+using System.Net;
 
 
 namespace SampleAPI.Controllers
@@ -8,6 +10,13 @@ namespace SampleAPI.Controllers
   [ApiController]
   public class AsycsController : ControllerBase
   {
+    private readonly IAsyncService _asyncService;
+
+    public AsycsController(IAsyncService asyncService)
+    {
+      _asyncService = asyncService;
+    }
+
 
     [HttpGet("Sync")]
     public IActionResult GetSync()
@@ -36,25 +45,25 @@ namespace SampleAPI.Controllers
     public async Task<IActionResult> GetTaskFactory()
     {
 
-     
-        // TaskFactory().StartNew ile senkron bir kod bloğunun non blocking çalıştırmak için sarmalladık.
-        var task = new TaskFactory().StartNew((async () =>
-        {
-          await Task.Delay(5000); // 5 saniye sürecek olan db operasyonu, dosya okuma, http request vs.
-          await Console.Out.WriteLineAsync($"Async Task {Thread.CurrentThread.ManagedThreadId}"); // Main Thread bloke edildimediğinde Main Thread'de bloke etmeden kullanabilir veya yepyeni bir thread'de çalışabilir.
 
-          return Task.FromException(new Exception("Hata"));
+      // TaskFactory().StartNew ile senkron bir kod bloğunun non blocking çalıştırmak için sarmalladık.
+      var task = new TaskFactory().StartNew((async () =>
+      {
+        await Task.Delay(5000); // 5 saniye sürecek olan db operasyonu, dosya okuma, http request vs.
+        await Console.Out.WriteLineAsync($"Async Task {Thread.CurrentThread.ManagedThreadId}"); // Main Thread bloke edildimediğinde Main Thread'de bloke etmeden kullanabilir veya yepyeni bir thread'de çalışabilir.
 
-        }));
-   
-      
+        return Task.FromException(new Exception("Hata"));
+
+      }));
+
+
 
 
       return Ok("Async");
     }
 
     [HttpGet("taskFactory2")]
-    public async  Task<IActionResult> Sample(CancellationToken token)
+    public async Task<IActionResult> Sample(CancellationToken token)
     {
 
       var tasks = new List<Task>();
@@ -68,7 +77,7 @@ namespace SampleAPI.Controllers
       {
         tasks.Add(Task.Factory.StartNew((word) =>
         {
-          Console.Out.WriteLineAsync("Thread Id" +  Thread.CurrentThread.ManagedThreadId);
+          Console.Out.WriteLineAsync("Thread Id" + Thread.CurrentThread.ManagedThreadId);
 
           Char[] chars = word.ToString().ToCharArray();
           double[] order = new double[chars.Length];
@@ -102,7 +111,7 @@ namespace SampleAPI.Controllers
       }
 
       // Task.WaitAll ile tüm task'ların bitmesini bekleyebiliriz.
-       Task.WaitAll(tasks.ToArray());
+      Task.WaitAll(tasks.ToArray());
 
       return Ok();
     }
@@ -124,7 +133,7 @@ namespace SampleAPI.Controllers
 
         if (t.IsFaulted)
         {
-         await Console.Out.WriteLineAsync(t.Exception.Message);
+          await Console.Out.WriteLineAsync(t.Exception.Message);
         }
         else if (t.IsCompletedSuccessfully)
         {
@@ -145,7 +154,7 @@ namespace SampleAPI.Controllers
 
         var data = t.Result.Length; // t.Result ile önceki task'ın sonucuna erişebiliriz.
 
-        await Console.Out.WriteLineAsync("Neo: Task Completed" + data); 
+        await Console.Out.WriteLineAsync("Neo: Task Completed" + data);
 
         if (t.IsFaulted)
         {
@@ -179,7 +188,7 @@ namespace SampleAPI.Controllers
       // await kullanıyorsa 2 tane senaryomuz var ya alt işlem üst işlemin sonuç döndürmesini beklmektedir. yada sıralı çalışmayı garanti altına almak istemekteyiz.
       var task1 = await client.GetStringAsync("https://google.com");
       // await ile yazdığımızda verinin çözülmüş resolved olmuş halini alırız. artık task ile ilgili bir state takibi yapamayız.
-      var data1 =  task1.Length;
+      var data1 = task1.Length;
       await Console.Out.WriteLineAsync("Google: Task Completed" + data1);
       // API SEND DATA
       var task2 = await client.GetStringAsync("https://neominal.com");
@@ -193,7 +202,70 @@ namespace SampleAPI.Controllers
       //var task = client.GetStringAsync("https://google.com");
       //task.Wait();
 
+
+
       return Ok("OK");
+    }
+
+
+    [HttpGet("requestCancelation")]
+    public async Task<IActionResult> RequestCancelation(CancellationToken cancellationToken)
+    {
+
+      try
+      {
+        // cancellationToken değeri asenkron kod bloğuna parametre olarak gönderilirse Task iptal süreci devreye girer.
+        var task = Task.Run(() =>
+        {
+          Thread.Sleep(5000); // 100 milyon döngü
+
+        }, cancellationToken);
+
+        await task;
+
+        if (cancellationToken.IsCancellationRequested)
+        {
+          await Console.Out.WriteLineAsync("Request Canceled");
+          // request cancel edildiğinde exception fırlat.
+          cancellationToken.ThrowIfCancellationRequested();
+        }
+
+        if (task.IsCompletedSuccessfully)
+        {
+          await Console.Out.WriteLineAsync("Task Completed");
+        }
+      }
+      catch (OperationCanceledException ex)
+      {
+        Console.Out.WriteLineAsync("Task Canceled" + ex.Message);
+        throw;
+      }
+
+
+
+
+
+      return Ok();
+    }
+
+
+    [HttpPost("requestCancelationCustomService")]
+
+    public async Task<IActionResult> RequestCancelationWithCustom(CancellationToken cancellationToken)
+    {
+
+      var task = _asyncService.GetAsync(cancellationToken);
+
+      if (task.IsCanceled)
+      {
+        await Console.Out.WriteLineAsync("Task Iptal edildi");
+      }
+
+      await task;
+
+      return Ok(task.Result);
+
+
     }
 
   }
