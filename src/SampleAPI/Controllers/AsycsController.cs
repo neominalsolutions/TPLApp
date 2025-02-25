@@ -1,6 +1,7 @@
 ﻿using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using SampleAPI.Services;
+using System.Diagnostics;
 using System.Net;
 
 
@@ -223,9 +224,12 @@ namespace SampleAPI.Controllers
 
         await task;
 
+
         if (cancellationToken.IsCancellationRequested)
         {
           await Console.Out.WriteLineAsync("Request Canceled");
+
+
           // request cancel edildiğinde exception fırlat.
           cancellationToken.ThrowIfCancellationRequested();
         }
@@ -267,6 +271,106 @@ namespace SampleAPI.Controllers
 
 
     }
+
+    // Not: Servis olmadığı durumda exception durumların Task.Run ile çalışan kod bloğunda try catch bloğu ile yakalanması.
+    [HttpPost("taskException")]
+    public async Task<IActionResult> RequestException()
+    {
+
+      try
+      {
+        Action action = () =>
+        {
+          throw new Exception("Hata");
+        };
+
+        var task = Task.Run(action); // action async çalıştıracağız.
+
+        task.Wait(); // Main Thread bloklanır.
+        //await task; // Main Thread bloklanamaz.
+
+      }
+      catch (Exception)
+      {
+        await Console.Out.WriteLineAsync("Task Faulted");
+
+      }
+
+      return Ok();
+    }
+
+
+    [HttpPost("taskCustomException")]
+    public async Task<IActionResult> TaskCustomException(CancellationToken cancellationToken)
+    {
+      try
+      {
+        var response = await this._asyncService.GetAsync();
+      }
+      catch (Exception ex)
+      {
+        await Console.Out.WriteLineAsync(ex.Message);
+      }
+
+      return Ok();
+    }
+
+    // whenAll, whenAny, waitAll, Task.Factory içerisinde de çoklu task işlemi methodları mevcut
+
+    [HttpPost("whenAll")]
+    public async Task<IActionResult> TaskWhenAll(CancellationToken cancellationToken)
+    {
+      // WhenAll ve WheAny non-blocking bir şekilde çalışır.
+      // WaitAll, Wait tüm task'ların bitmesini bekler. Blocking çalışır
+
+      // Taskları Task Chain => zincirleme olarak birrine bağlanan durumlarda mantıklı
+
+      var task1 = Task.Run(() =>
+      {
+        Thread.Sleep(200);
+        return "Task1";
+      });
+
+      var task2 = Task.Run(() =>
+      {
+        Thread.Sleep(100);
+        return "Task2";
+      });
+
+
+      var task3 = Task.Run(() =>
+      {
+        Thread.Sleep(100);
+        return Task.FromException<Exception>(new Exception("Hata"));
+      });
+
+      // WhenAll => tasklar içerisinin hepsi tamamlandığında çalışır.
+      // WhenAny => herhangi bir task tamamlandığında çalışır. resolve olur.
+
+      // var taskState = await Task.WhenAny(task1, task2, task3);
+      var taskState =  Task.WhenAll(task1,task2,task3);
+      await taskState; // Hepsini aynı anda resolve et.
+
+      // await taskState; // Hepsini aynı anda resolve et.
+
+      // Not: Tüm task statlerin başarılı olup olmadığını görmek için WhenAny ile Tasklardan en az birinin çözümlenmesi lazım.
+      if (taskState.IsFaulted) // içlerinden bir tanesinde bir hata meydana gelince
+      {
+        await Console.Out.WriteLineAsync("Task Faulted");
+      }
+      else if (taskState.IsCompleted) // Hepsi resorved olunca tetiklenir
+      {
+        await Console.Out.WriteLineAsync("Task Completed");
+      }
+      // task1.Wait();
+      //Task.WaitAll();
+      // task1.GetAwaiter().GetResult(); Sekron bir kod bloğunda asenkron kodu sekron koda async await eklemeden çalıştıramayacağımız durumlarda kullanılır.
+      // await taks bu bloke edilmemiş halidir.
+
+
+      return Ok();
+    }
+
 
   }
 }
