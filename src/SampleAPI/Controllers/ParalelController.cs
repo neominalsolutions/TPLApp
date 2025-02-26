@@ -22,11 +22,11 @@ namespace SampleAPI.Controllers
       var sp1 = Stopwatch.StartNew();
 
       // Paralel olarak birden fazla thread ile 0,100 arasında işlem yapacağız.
-      Parallel.For(0, 2000000000, (item) =>
+      Parallel.For(0, 200000000, (item) =>
       {
         // bunun içine yazılan kodları thread bazlı multi thread uygular.
         // Console.Out.WriteLine("Thread Id" + Thread.CurrentThread.ManagedThreadId);
-        double d = Math.Sqrt(item);
+        double d = Math.Sqrt(item) * Math.Pow(item,2);
         // Console.Out.WriteLine($"{item} karakök {d}");
       });
       sp1.Stop();
@@ -34,10 +34,10 @@ namespace SampleAPI.Controllers
 
       var sp2 = Stopwatch.StartNew();
 
-      for (int i = 0; i < 2000000000; i++)
+      for (int i = 0; i < 200000000; i++)
       {
         // Console.Out.WriteLine("Thread Id " + Thread.CurrentThread.ManagedThreadId);
-        double d = Math.Sqrt(i);
+        double d = Math.Sqrt(i) * Math.Pow(i, 2); ;
         // Console.Out.WriteLine($"{i} karakök {d}");
       }
       sp2.Stop();
@@ -85,16 +85,19 @@ namespace SampleAPI.Controllers
     public IActionResult RaceCondition()
     {
       int sum = 0;
-      // object lockObj = new object();
+      object lockObj = new object();
 
       Parallel.ForEach(Enumerable.Range(0, 1000000), (item) =>
       {
 
+        //sum++;
         //lock (lockObj)
         //{
+        //  // thread safe işlemler yapabiliriz.
         //  sum++;
         //}
 
+        // Thread Safe çalışan bir sınıf
         Interlocked.Increment(ref sum);
 
 
@@ -109,7 +112,7 @@ namespace SampleAPI.Controllers
     [HttpGet("threadSafeCollections")]
     public IActionResult ThreadSafeCollections()
     {
-      List<int> ints = new();
+      List<int> ints = new(); // Normal Collection ifadeleri Thread Safe Değil
       ConcurrentBag<int> bags = new();
       BlockingCollection<int> bs = new(500000);
 
@@ -127,22 +130,24 @@ namespace SampleAPI.Controllers
       // bu kadar büyük veri kümesine sahip listelerde kapasite problemleri yaşıyoruz.
       // Not: örnekteki ifadeyi 1000000 için deniyelim
 
-      Parallel.ForEach(Enumerable.Range(0, 1000000), (item) =>
+      Parallel.ForEach(Enumerable.Range(0, 1000000000), (item) =>
       {
-        //ints.Add(item);
-        // bags.Add(item);
-        if (bs.TryAdd(item)) // Kontrollü ekleme işlemi
-        {
+        ints.Add(item);
+        //bags.Add(item);
 
-        }
+        //if (bs.TryAdd(item)) // Kontrollü ekleme işlemi
+        //{
+
+        //}
 
       });
 
       Console.Out.WriteLine("1. bs Count " + bs.Count);
+      Console.Out.WriteLine("1. ints Count " + ints.Count);
 
       Parallel.ForEach(Enumerable.Range(0, 1000000), (item) =>
       {
-        //ints.Add(item);
+        ints.Remove(item);
         while (bs.TryTake(out item))
         {
 
@@ -151,6 +156,7 @@ namespace SampleAPI.Controllers
       });
 
       Console.Out.WriteLine("2. bs Count" + bs.Count);
+      Console.Out.WriteLine("1. ints Count " + ints.Count);
 
 
       //Console.Out.WriteLine("Total Count " +  ints.Count);
@@ -203,6 +209,80 @@ namespace SampleAPI.Controllers
 
       Console.Out.WriteLine("ConcurentBag ms" + sp1.ElapsedMilliseconds);
 
+      return Ok();
+    }
+
+
+    [HttpGet("ParalelForForeachAsync")]
+    public async Task<IActionResult> ParalelForForeachAsync(CancellationToken token)
+    {
+
+      CancellationTokenSource cancellationTokenSource = new CancellationTokenSource();
+      var token1 = cancellationTokenSource.Token;
+
+
+      //// 1.yazım şekli   Parallel.For Main Thread bloke etmez
+      //var task =  Task.Run(() =>
+      //{
+      //  // Task.Run içerisindeki kod bloğu asenkron bir şekilde çalışır.
+      //  Parallel.For(0, 1000000, (item) =>
+      //  {
+      //    Console.Out.WriteLine("Thread Id" + Thread.CurrentThread.ManagedThreadId);
+      //    Thread.Sleep(1000);
+      //  });
+
+      //});
+
+
+
+      // Paralel işlemleri iptal etmek için token kullanabiliriz. Paralel Optionsdan yararlanılır.
+      var parallelOptions = new ParallelOptions();
+      parallelOptions.CancellationToken = token;
+      parallelOptions.TaskScheduler = TaskScheduler.Default;
+      parallelOptions.MaxDegreeOfParallelism = 6; // Maksimum işlemi kaç thread'e ayırıcağımı belirlediğimiz kod.
+      // Not: Debug modda çalıştırıldığında 1 thread çalışır. Release modda çalıştırıldığında 6 thread çalışır.
+
+      // Asekron bir kod bloğunda task schedular kullanım şekli
+      //TaskFactory taskFactory = new TaskFactory(TaskScheduler.Default);
+      //await taskFactory.StartNew(() =>
+      //{
+      //  Console.Out.WriteLineAsync("Deneme");
+      //});
+
+
+      try
+      {
+        await Parallel.ForAsync(0, 500000, parallelOptions, async (item, token) =>
+        {
+
+
+          if (parallelOptions.CancellationToken.IsCancellationRequested)
+          {
+            //await Console.Out.WriteLineAsync("Operation was Canceled");
+            token.ThrowIfCancellationRequested();
+          }
+
+
+          Console.Out.WriteLine("Thread Id" + Thread.CurrentThread.ManagedThreadId);
+          await Task.Delay(1000);
+        });
+
+      }
+      catch (OperationCanceledException ex)
+      {
+        await Console.Out.WriteLineAsync(ex.Message);
+        throw;
+      }
+
+     
+  
+
+
+      //Parallel.For(0, 1000000, (item) =>
+      //{
+      //  Console.Out.WriteLine("Not Async Thread Id" + Thread.CurrentThread.ManagedThreadId);
+      //  Thread.Sleep(100);
+      //});
 
 
 
